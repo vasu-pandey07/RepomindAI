@@ -1,0 +1,29 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    database_url: str = Field(..., alias="DATABASE_URL")
+    jwt_secret: str = Field(..., alias="JWT_SECRET")
+    github_client_id: str = Field(..., alias="GITHUB_CLIENT_ID")
+    github_client_secret: str = Field(..., alias="GITHUB_CLIENT_SECRET")
+    frontend_url: str = Field("http://localhost:3000", alias="FRONTEND_URL")
+    backend_url: str = Field("http://localhost:8000", alias="BACKEND_URL")
+    access_token_expire_minutes: int = Field(60 * 24 * 7, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    google_api_key: str | None = Field(None, alias="GOOGLE_API_KEY")
+    gemini_embedding_model: str = Field("models/text-embedding-004", alias="GEMINI_EMBEDDING_MODEL")
+    gemini_chat_model: str = Field("gemini-1.5-flash", alias="GEMINI_CHAT_MODEL")
+    embedding_dimension: int = Field(768, alias="EMBEDDING_DIMENSION")
+    jwt_algorithm: str = "HS256"
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
