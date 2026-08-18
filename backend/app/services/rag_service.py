@@ -85,6 +85,8 @@ class RepositoryRagService:
                 )
             )
 
+        context = "\n\n".join(context_blocks)
+
         return f"""You are RepoMind AI, a repository-aware code assistant.
 
 Answer the user's question using the repository context below. Try to be as helpful as possible.

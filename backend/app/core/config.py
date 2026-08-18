@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     backend_url: str = Field("http://localhost:8000", alias="BACKEND_URL")
     access_token_expire_minutes: int = Field(60 * 24 * 7, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     google_api_key: str | None = Field(None, alias="GOOGLE_API_KEY")
-    gemini_embedding_model: str = Field("models/text-embedding-004", alias="GEMINI_EMBEDDING_MODEL")
-    gemini_chat_model: str = Field("gemini-1.5-flash", alias="GEMINI_CHAT_MODEL")
+    gemini_embedding_model: str = Field("models/gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL")
+    gemini_chat_model: str = Field("gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
     embedding_dimension: int = Field(768, alias="EMBEDDING_DIMENSION")
     jwt_algorithm: str = "HS256"
 

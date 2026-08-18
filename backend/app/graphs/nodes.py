@@ -66,13 +66,16 @@ class AgentNodes:
                     sources.append(path)
                     
                     # Semantically retrieve related chunks for additional context
-                    chunks = self.retriever.retrieve(db, repo_id, f"functions, security and structure in {path}", limit=3)
-                    for chunk in chunks:
-                        if chunk.file_path != path:  # Avoid duplicating the same file
-                            context_parts.append(
-                                f"Related Context from {chunk.file_path}:\n```\n{chunk.content}\n```"
-                            )
-                            sources.append(chunk.file_path)
+                    try:
+                        chunks = self.retriever.retrieve(db, repo_id, f"functions, security and structure in {path}", limit=3)
+                        for chunk in chunks:
+                            if chunk.file_path != path:  # Avoid duplicating the same file
+                                context_parts.append(
+                                    f"Related Context from {chunk.file_path}:\n```\n{chunk.content}\n```"
+                                )
+                                sources.append(chunk.file_path)
+                    except Exception:
+                        pass  # Proceed without semantic context if retriever fails
                 else:
                     context_parts.append(f"File: {path} (Not found in index or empty/deleted)")
 
@@ -90,13 +93,16 @@ class AgentNodes:
                 sources.append(file_path)
                 
                 # Retrieve imports or dependencies in other files
-                chunks = self.retriever.retrieve(db, repo_id, f"classes, types, functions or helpers imported by {file_path}", limit=3)
-                for chunk in chunks:
-                    if chunk.file_path != file_path:
-                        context_parts.append(
-                            f"Related Context from dependency/helper ({chunk.file_path}):\n```\n{chunk.content}\n```"
-                        )
-                        sources.append(chunk.file_path)
+                try:
+                    chunks = self.retriever.retrieve(db, repo_id, f"classes, types, functions or helpers imported by {file_path}", limit=3)
+                    for chunk in chunks:
+                        if chunk.file_path != file_path:
+                            context_parts.append(
+                                f"Related Context from dependency/helper ({chunk.file_path}):\n```\n{chunk.content}\n```"
+                            )
+                            sources.append(chunk.file_path)
+                except Exception:
+                    pass  # Proceed without semantic context if retriever fails
             else:
                 context_parts.append(f"Error: Target file {file_path} not found in this repository index.")
 
@@ -145,13 +151,16 @@ class AgentNodes:
                 "authentication, OAuth, middleware, and JWT security keys"
             ]
             for query in arch_queries:
-                chunks = self.retriever.retrieve(db, repo_id, query, limit=2)
-                for chunk in chunks:
-                    if chunk.file_path not in sources:
-                        context_parts.append(
-                            f"Architectural Snippet ({chunk.file_path}):\n```\n{chunk.content}\n```"
-                        )
-                        sources.append(chunk.file_path)
+                try:
+                    chunks = self.retriever.retrieve(db, repo_id, query, limit=2)
+                    for chunk in chunks:
+                        if chunk.file_path not in sources:
+                            context_parts.append(
+                                f"Architectural Snippet ({chunk.file_path}):\n```\n{chunk.content}\n```"
+                            )
+                            sources.append(chunk.file_path)
+                except Exception:
+                    pass  # Proceed without semantic context if retriever fails
 
         # Deduplicate sources
         dedup_sources = list(dict.fromkeys(sources))

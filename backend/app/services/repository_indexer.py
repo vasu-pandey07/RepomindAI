@@ -40,7 +40,7 @@ SUPPORTED_EXTENSIONS = {
     ".tsx",
 }
 
-EMBEDDING_BATCH_SIZE = 64
+EMBEDDING_BATCH_SIZE = 5
 
 
 @dataclass(frozen=True)
@@ -171,8 +171,9 @@ class RepositoryIndexer:
 
     def _embed_chunks(self, chunks: list[CodeChunk]) -> int:
         failures = 0
+        total_batches = (len(chunks) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
-        for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
+        for batch_num, start in enumerate(range(0, len(chunks), EMBEDDING_BATCH_SIZE), 1):
             batch = chunks[start : start + EMBEDDING_BATCH_SIZE]
             texts = [chunk.content for chunk in batch]
 
@@ -196,6 +197,10 @@ class RepositoryIndexer:
 
                 chunk.embedding = vector
 
+            logger.info("Embedded batch %d/%d (%d chunks)", batch_num, total_batches, len(batch))
+            # Rate-limit between batches to stay under the Gemini free tier RPM
+            time.sleep(5)
+
         return failures
 
     def _embed_chunks_individually(self, chunks: list[CodeChunk]) -> int:
@@ -203,8 +208,8 @@ class RepositoryIndexer:
 
         for chunk in chunks:
             try:
-                # Add a brief rate-limiting sleep between individual retries to stay under the free tier RPM
-                time.sleep(0.3)
+                # Generous rate-limiting sleep between individual retries to stay under the free tier RPM (~15 RPM)
+                time.sleep(4.5)
                 vector = self.embeddings.embed_query(chunk.content)
             except Exception as exc:
                 logger.warning("Embedding failed for chunk %s: %s", chunk.id, exc)
