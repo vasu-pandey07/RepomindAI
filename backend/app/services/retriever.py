@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.db.models import CodeChunk, CodeFile
 from app.services.embeddings import GeminiEmbeddings
 
@@ -16,13 +16,14 @@ class RetrievedChunk:
 
 class RepositoryRetriever:
     def __init__(self) -> None:
-        if not settings.google_api_key:
+        current_settings = get_settings()
+        if not current_settings.google_api_key:
             raise RuntimeError("GOOGLE_API_KEY must be configured before retrieving code context.")
 
         self.embeddings = GeminiEmbeddings(
-            model=settings.gemini_embedding_model,
-            google_api_key=settings.google_api_key,
-            dimensionality=settings.embedding_dimension,
+            model=current_settings.gemini_embedding_model,
+            google_api_key=current_settings.google_api_key,
+            dimensionality=current_settings.embedding_dimension,
         )
 
     def retrieve(self, db: Session, repository_id: int, user_question: str, limit: int = 5) -> list[RetrievedChunk]:

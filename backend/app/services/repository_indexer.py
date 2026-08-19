@@ -10,7 +10,7 @@ from urllib.parse import quote
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.db.models import CodeChunk, CodeFile, Repository, User
 from app.services.embeddings import GeminiEmbeddings
 
@@ -58,14 +58,15 @@ class IndexingResult:
 
 class RepositoryIndexer:
     def __init__(self) -> None:
-        if not settings.google_api_key:
+        current_settings = get_settings()
+        if not current_settings.google_api_key:
             raise RuntimeError("GOOGLE_API_KEY must be configured before indexing repositories.")
 
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         self.embeddings = GeminiEmbeddings(
-            model=settings.gemini_embedding_model,
-            google_api_key=settings.google_api_key,
-            dimensionality=settings.embedding_dimension,
+            model=current_settings.gemini_embedding_model,
+            google_api_key=current_settings.google_api_key,
+            dimensionality=current_settings.embedding_dimension,
         )
 
     def index_repository(self, db: Session, repository: Repository, user: User) -> IndexingResult:

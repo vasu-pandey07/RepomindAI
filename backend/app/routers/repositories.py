@@ -96,7 +96,7 @@ def index_repository(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Repository indexing failed.",
+            detail=f"Repository indexing failed: {str(exc)}",
         ) from exc
 
     return RepositoryIndexResponse(files_processed=result.files_processed, status="success")
