@@ -27,7 +27,29 @@ app.include_router(agents.router)
 def on_startup():
     from app.db.database import Base, engine
     import app.db.models  # noqa: F401
+    from sqlalchemy import text
+    from app.core.config import get_settings
+
+    current_settings = get_settings()
+    dim = current_settings.embedding_dimension
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            # Auto-migrate vector column dimension if changed from 768 to 384
+            conn.execute(text(f"ALTER TABLE code_chunks ALTER COLUMN embedding TYPE vector({dim});"))
+            conn.commit()
+    except Exception as exc:
+        print(f"Database startup extension/migration notice: {exc}")
+
     Base.metadata.create_all(bind=engine)
+
+    # Pre-warm FastEmbed model in memory
+    try:
+        from app.services.embeddings import get_fastembed_model
+        get_fastembed_model()
+    except Exception as exc:
+        print(f"FastEmbed pre-warm notice: {exc}")
 
 
 @app.get("/health")
