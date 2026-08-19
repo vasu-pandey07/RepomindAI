@@ -101,7 +101,16 @@ export function RepositoryCard({ repository }: { repository: Repository }) {
 
         {indexMutation.isError && (
           <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-2.5 text-xs text-red-600 dark:text-red-400">
-            {((indexMutation.error as any)?.response?.data?.detail as string) || "Indexing failed. Please check backend logs."}
+            {(() => {
+              const err = indexMutation.error as any;
+              return (
+                err?.response?.data?.detail ||
+                err?.response?.data?.message ||
+                (typeof err?.response?.data === "string" && err.response.data) ||
+                err?.message ||
+                "Indexing failed. Please check backend logs."
+              );
+            })()}
           </div>
         )}
       </div>

@@ -38,6 +38,16 @@ SUPPORTED_EXTENSIONS = {
     ".rs",
     ".ts",
     ".tsx",
+    ".html",
+    ".css",
+    ".json",
+    ".sql",
+    ".yaml",
+    ".yml",
+    ".sh",
+    ".vue",
+    ".svelte",
+    ".php",
 }
 
 EMBEDDING_BATCH_SIZE = 32
@@ -81,6 +91,12 @@ class RepositoryIndexer:
             clone_path = Path(temp_dir) / "repository"
             self._clone_repository(repository.full_name, user.access_token, clone_path)
             files = self._read_supported_files(clone_path)
+
+        if not files:
+            raise RuntimeError(
+                f"No supported code files found in repository {repository.full_name}. "
+                "Ensure the repository contains code files (.js, .ts, .py, .jsx, .tsx, .html, etc.)."
+            )
 
         return self._store_files_chunks_and_embeddings(db, repository.id, files)
 
@@ -178,7 +194,6 @@ class RepositoryIndexer:
         )
 
     def _embed_chunks(self, chunks: list[CodeChunk]) -> int:
-        failures = 0
         total_batches = (len(chunks) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
 
         for batch_num, start in enumerate(range(0, len(chunks), EMBEDDING_BATCH_SIZE), 1):
@@ -188,52 +203,14 @@ class RepositoryIndexer:
             try:
                 vectors = self.embeddings.embed_documents(texts)
             except Exception as exc:
-                logger.warning("Batch embedding failed; retrying chunks individually: %s", exc)
-                failures += self._embed_chunks_individually(batch)
-                continue
+                logger.error("Embedding generation failed on batch %d: %s", batch_num, exc)
+                raise RuntimeError(f"Embedding failed: {exc}") from exc
 
             for chunk, vector in zip(batch, vectors, strict=False):
-                if len(vector) != self.embedding_dimension:
-                    logger.warning(
-                        "Skipping embedding for chunk %s because dimension %s != %s.",
-                        chunk.id,
-                        len(vector),
-                        self.embedding_dimension,
-                    )
-                    failures += 1
-                    continue
-
                 chunk.embedding = vector
 
             logger.info("Embedded batch %d/%d (%d chunks)", batch_num, total_batches, len(batch))
             if not self.is_local:
                 time.sleep(5)
 
-        return failures
-
-    def _embed_chunks_individually(self, chunks: list[CodeChunk]) -> int:
-        failures = 0
-
-        for chunk in chunks:
-            try:
-                # Generous rate-limiting sleep between individual retries to stay under the free tier RPM (~15 RPM)
-                time.sleep(4.5)
-                vector = self.embeddings.embed_query(chunk.content)
-            except Exception as exc:
-                logger.warning("Embedding failed for chunk %s: %s", chunk.id, exc)
-                failures += 1
-                continue
-
-            if len(vector) != settings.embedding_dimension:
-                logger.warning(
-                    "Skipping embedding for chunk %s because dimension %s != %s.",
-                    chunk.id,
-                    len(vector),
-                    settings.embedding_dimension,
-                )
-                failures += 1
-                continue
-
-            chunk.embedding = vector
-
-        return failures
+        return 0
