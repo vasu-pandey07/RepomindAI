@@ -15,12 +15,24 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        source: "/repositories",
+        destination: "http://127.0.0.1:8000/repositories",
+      },
+      {
         source: "/repositories/:path*",
         destination: "http://127.0.0.1:8000/repositories/:path*",
       },
       {
+        source: "/chat",
+        destination: "http://127.0.0.1:8000/chat",
+      },
+      {
         source: "/chat/:path*",
         destination: "http://127.0.0.1:8000/chat/:path*",
+      },
+      {
+        source: "/agents",
+        destination: "http://127.0.0.1:8000/agents",
       },
       {
         source: "/agents/:path*",
