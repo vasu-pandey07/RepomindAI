@@ -36,9 +36,11 @@ def on_startup():
     try:
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            # Auto-migrate vector column dimension if changed from 768 to 384
-            conn.execute(text(f"ALTER TABLE code_chunks ALTER COLUMN embedding TYPE vector({dim});"))
+            # Safely ensure embedding column uses exact vector dimension (384 for FastEmbed)
+            conn.execute(text("ALTER TABLE code_chunks DROP COLUMN IF EXISTS embedding CASCADE;"))
+            conn.execute(text(f"ALTER TABLE code_chunks ADD COLUMN embedding vector({dim});"))
             conn.commit()
+            print(f"✅ Vector column initialized with dimension {dim}.")
     except Exception as exc:
         print(f"Database startup extension/migration notice: {exc}")
 
