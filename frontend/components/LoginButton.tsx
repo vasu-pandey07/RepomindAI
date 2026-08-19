@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export function LoginButton() {
   const handleLogin = () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
     window.location.href = `${apiUrl}/auth/github/login`;
   };
 
