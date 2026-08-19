@@ -15,10 +15,6 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: "/auth/:path*",
-        destination: "http://127.0.0.1:8000/auth/:path*",
-      },
-      {
         source: "/repositories/:path*",
         destination: "http://127.0.0.1:8000/repositories/:path*",
       },
