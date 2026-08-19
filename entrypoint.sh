@@ -21,10 +21,10 @@ except Exception as e:
 # 2. Start FastAPI Backend in the background
 echo "[2/3] Starting FastAPI backend on 127.0.0.1:${BACKEND_INTERNAL_PORT:-8000}..."
 cd /app/backend
-uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_INTERNAL_PORT:-8000}" &
+python -m uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_INTERNAL_PORT:-8000}" &
 BACKEND_PID=$!
 
-# Wait for FastAPI to be ready
+# Wait for FastAPI to be responsive
 echo "Waiting for FastAPI to respond..."
 for i in $(seq 1 30); do
     if curl -s "http://127.0.0.1:${BACKEND_INTERNAL_PORT:-8000}/health" >/dev/null 2>&1; then
@@ -37,11 +37,11 @@ done
 # 3. Start Next.js Frontend in the foreground on the public PORT
 echo "[3/3] Starting Next.js frontend on 0.0.0.0:${PORT:-3000}..."
 cd /app/frontend
-HOSTNAME="0.0.0.0" PORT="${PORT:-3000}" node server.js &
-FRONTEND_PID=$!
+export HOSTNAME="0.0.0.0"
+export PORT="${PORT:-3000}"
 
 # Graceful shutdown handler
-trap "kill -TERM $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" SIGINT SIGTERM
+trap "kill -TERM $BACKEND_PID 2>/dev/null || true" SIGINT SIGTERM EXIT
 
-# Wait for either process to exit
-wait -n $BACKEND_PID $FRONTEND_PID
+# Run Next.js server in the foreground
+exec node server.js
