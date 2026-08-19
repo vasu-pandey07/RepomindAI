@@ -23,6 +23,13 @@ app.include_router(chat.router)
 app.include_router(agents.router)
 
 
+@app.on_event("startup")
+def on_startup():
+    from app.db.database import Base, engine
+    import app.db.models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}

@@ -12,6 +12,7 @@ python -c "
 import os
 try:
     from app.db.database import Base, engine
+    import app.db.models
     Base.metadata.create_all(bind=engine)
     print('✅ Database schema verified.')
 except Exception as e:
