@@ -24,6 +24,16 @@ cd /app/backend
 uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_INTERNAL_PORT:-8000}" &
 BACKEND_PID=$!
 
+# Wait for FastAPI to be ready
+echo "Waiting for FastAPI to respond..."
+for i in $(seq 1 30); do
+    if curl -s "http://127.0.0.1:${BACKEND_INTERNAL_PORT:-8000}/health" >/dev/null 2>&1; then
+        echo "✅ FastAPI is live and ready."
+        break
+    fi
+    sleep 0.5
+done
+
 # 3. Start Next.js Frontend in the foreground on the public PORT
 echo "[3/3] Starting Next.js frontend on 0.0.0.0:${PORT:-3000}..."
 cd /app/frontend
