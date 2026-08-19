@@ -2,9 +2,11 @@ import re
 from typing import Dict, Any, List
 from langchain_core.runnables import RunnableConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.db.models import CodeFile, Repository
 from app.graphs.state import AgentState
 from app.services.retriever import RepositoryRetriever
@@ -17,23 +19,27 @@ class AgentNodes:
 
     @property
     def retriever(self) -> RepositoryRetriever:
-        if self._retriever is None:
-            if not settings.google_api_key:
-                raise ValueError("GOOGLE_API_KEY must be configured before running AI agents.")
-            self._retriever = RepositoryRetriever()
-        return self._retriever
+        current_settings = get_settings()
+        if not current_settings.google_api_key:
+            raise ValueError("GOOGLE_API_KEY must be configured before running AI agents.")
+        return RepositoryRetriever()
 
     @property
-    def llm(self) -> ChatGoogleGenerativeAI:
-        if self._llm is None:
-            if not settings.google_api_key:
-                raise ValueError("GOOGLE_API_KEY must be configured before running AI agents.")
-            self._llm = ChatGoogleGenerativeAI(
-                model=settings.gemini_chat_model,
-                google_api_key=settings.google_api_key,
+    def llm(self):
+        current_settings = get_settings()
+        if current_settings.groq_api_key:
+            return ChatGroq(
+                model_name=current_settings.groq_model,
+                groq_api_key=current_settings.groq_api_key,
                 temperature=0.1,
             )
-        return self._llm
+        if not current_settings.google_api_key:
+            raise ValueError("Either GROQ_API_KEY or GOOGLE_API_KEY must be configured before running AI agents.")
+        return ChatGoogleGenerativeAI(
+            model=current_settings.gemini_chat_model,
+            google_api_key=current_settings.google_api_key,
+            temperature=0.1,
+        )
 
     def retrieve_context_node(self, state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         """
@@ -53,23 +59,29 @@ class AgentNodes:
 
         # Case 1: PR Review Agent
         if changed_files is not None:
-            for path in changed_files:
+            for raw_path in changed_files:
+                path = raw_path.strip().lstrip("/\\")
                 code_file = (
                     db.query(CodeFile)
-                    .filter(CodeFile.repository_id == repo_id, CodeFile.file_path == path)
+                    .filter(
+                        CodeFile.repository_id == repo_id,
+                        (func.lower(CodeFile.file_path) == path.lower()) |
+                        (CodeFile.file_path.ilike(f"%{path}"))
+                    )
                     .first()
                 )
                 if code_file:
+                    matched_path = code_file.file_path
                     context_parts.append(
-                        f"File: {path}\nContent:\n```\n{code_file.content}\n```"
+                        f"File: {matched_path}\nContent:\n```\n{code_file.content}\n```"
                     )
-                    sources.append(path)
+                    sources.append(matched_path)
                     
                     # Semantically retrieve related chunks for additional context
                     try:
-                        chunks = self.retriever.retrieve(db, repo_id, f"functions, security and structure in {path}", limit=3)
+                        chunks = self.retriever.retrieve(db, repo_id, f"functions, security and structure in {matched_path}", limit=3)
                         for chunk in chunks:
-                            if chunk.file_path != path:  # Avoid duplicating the same file
+                            if chunk.file_path != matched_path:  # Avoid duplicating the same file
                                 context_parts.append(
                                     f"Related Context from {chunk.file_path}:\n```\n{chunk.content}\n```"
                                 )
@@ -81,22 +93,28 @@ class AgentNodes:
 
         # Case 2: Test Generation Agent
         elif file_path is not None:
+            path = file_path.strip().lstrip("/\\")
             code_file = (
                 db.query(CodeFile)
-                .filter(CodeFile.repository_id == repo_id, CodeFile.file_path == file_path)
+                .filter(
+                    CodeFile.repository_id == repo_id,
+                    (func.lower(CodeFile.file_path) == path.lower()) |
+                    (CodeFile.file_path.ilike(f"%{path}"))
+                )
                 .first()
             )
             if code_file:
+                matched_path = code_file.file_path
                 context_parts.append(
-                    f"Target File for Test Generation:\nFile: {file_path}\nContent:\n```\n{code_file.content}\n```"
+                    f"Target File for Test Generation:\nFile: {matched_path}\nContent:\n```\n{code_file.content}\n```"
                 )
-                sources.append(file_path)
+                sources.append(matched_path)
                 
                 # Retrieve imports or dependencies in other files
                 try:
-                    chunks = self.retriever.retrieve(db, repo_id, f"classes, types, functions or helpers imported by {file_path}", limit=3)
+                    chunks = self.retriever.retrieve(db, repo_id, f"classes, types, functions or helpers imported by {matched_path}", limit=3)
                     for chunk in chunks:
-                        if chunk.file_path != file_path:
+                        if chunk.file_path != matched_path:
                             context_parts.append(
                                 f"Related Context from dependency/helper ({chunk.file_path}):\n```\n{chunk.content}\n```"
                             )
@@ -104,7 +122,7 @@ class AgentNodes:
                 except Exception:
                     pass  # Proceed without semantic context if retriever fails
             else:
-                context_parts.append(f"Error: Target file {file_path} not found in this repository index.")
+                context_parts.append(f"Error: Target file {path} not found in this repository index.")
 
         # Case 3: Documentation Agent
         else:

@@ -14,14 +14,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(60 * 24 * 7, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     google_api_key: str | None = Field(None, alias="GOOGLE_API_KEY")
     gemini_embedding_model: str = Field("models/gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL")
-    gemini_chat_model: str = Field("gemini-2.5-flash", alias="GEMINI_CHAT_MODEL")
+    gemini_chat_model: str = Field("gemini-flash-latest", alias="GEMINI_CHAT_MODEL")
+    groq_api_key: str | None = Field(None, alias="GROQ_API_KEY")
+    groq_model: str = Field("openai/gpt-oss-120b", alias="GROQ_MODEL")
     embedding_dimension: int = Field(768, alias="EMBEDDING_DIMENSION")
     jwt_algorithm: str = "HS256"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
-@lru_cache
 def get_settings() -> Settings:
     return Settings()
 

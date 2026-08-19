@@ -76,7 +76,7 @@ def chat_with_repository(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Repository chat failed.",
+            detail=f"Repository chat failed: {str(exc)}",
         ) from exc
 
     db.add(ChatMessage(session_id=session.id, role="user", content=payload.question))

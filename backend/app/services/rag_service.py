@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 from app.db.models import CodeFile
 from app.services.retriever import RepositoryRetriever, RetrievedChunk
 
@@ -18,15 +19,23 @@ class RagAnswer:
 
 class RepositoryRagService:
     def __init__(self) -> None:
-        if not settings.google_api_key:
-            raise RuntimeError("GOOGLE_API_KEY must be configured before using repository chat.")
+        current_settings = get_settings()
+        if not current_settings.groq_api_key and not current_settings.google_api_key:
+            raise RuntimeError("Either GROQ_API_KEY or GOOGLE_API_KEY must be configured before using repository chat.")
 
         self.retriever = RepositoryRetriever()
-        self.chat_model = ChatGoogleGenerativeAI(
-            model=settings.gemini_chat_model,
-            google_api_key=settings.google_api_key,
-            temperature=0,
-        )
+        if current_settings.groq_api_key:
+            self.chat_model = ChatGroq(
+                model_name=current_settings.groq_model,
+                groq_api_key=current_settings.groq_api_key,
+                temperature=0,
+            )
+        else:
+            self.chat_model = ChatGoogleGenerativeAI(
+                model=current_settings.gemini_chat_model,
+                google_api_key=current_settings.google_api_key,
+                temperature=0,
+            )
 
     def answer_question(self, db: Session, repository_id: int, question: str) -> RagAnswer:
         chunks = self.retriever.retrieve(db, repository_id, question, limit=5)

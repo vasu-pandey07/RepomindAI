@@ -253,8 +253,11 @@ export function AgentPanel() {
 
                 {docMutation.isError && (
                   <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-xs text-red-600 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>Agent execution failed. Please verify repository indices are fully populated.</span>
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>
+                      {(docMutation.error as any)?.response?.data?.detail ||
+                        "Agent execution failed. Please verify repository indices are fully populated."}
+                    </span>
                   </div>
                 )}
 
@@ -331,8 +334,11 @@ export function AgentPanel() {
 
                 {prMutation.isError && (
                   <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-xs text-red-600 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>Failed to complete review. Check the file paths match files in the index.</span>
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>
+                      {(prMutation.error as any)?.response?.data?.detail ||
+                        "Failed to complete review. Check the file paths match files in the index."}
+                    </span>
                   </div>
                 )}
 
@@ -430,8 +436,11 @@ export function AgentPanel() {
 
                 {testMutation.isError && (
                   <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-xs text-red-600 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>Failed to generate tests. Verify that the file path exists in the repository.</span>
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>
+                      {(testMutation.error as any)?.response?.data?.detail ||
+                        "Failed to generate tests. Verify that the file path exists in the repository."}
+                    </span>
                   </div>
                 )}
 
