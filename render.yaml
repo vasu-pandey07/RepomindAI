@@ -28,5 +28,7 @@ services:
         value: models/gemini-embedding-001
       - key: GEMINI_CHAT_MODEL
         value: gemini-flash-latest
+      - key: EMBEDDING_PROVIDER
+        value: fastembed
       - key: EMBEDDING_DIMENSION
-        value: 768
+        value: 384

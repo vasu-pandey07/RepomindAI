@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, settings
 from app.db.models import CodeChunk, CodeFile, Repository, User
-from app.services.embeddings import GeminiEmbeddings
+from app.services.embeddings import GeminiEmbeddings, LocalFastEmbeddings
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ SUPPORTED_EXTENSIONS = {
     ".tsx",
 }
 
-EMBEDDING_BATCH_SIZE = 5
+EMBEDDING_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True)
@@ -59,15 +59,22 @@ class IndexingResult:
 class RepositoryIndexer:
     def __init__(self) -> None:
         current_settings = get_settings()
-        if not current_settings.google_api_key:
-            raise RuntimeError("GOOGLE_API_KEY must be configured before indexing repositories.")
-
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        self.embeddings = GeminiEmbeddings(
-            model=current_settings.gemini_embedding_model,
-            google_api_key=current_settings.google_api_key,
-            dimensionality=current_settings.embedding_dimension,
-        )
+        self.embedding_dimension = current_settings.embedding_dimension
+
+        if current_settings.embedding_provider == "gemini" and current_settings.google_api_key:
+            self.embeddings = GeminiEmbeddings(
+                model=current_settings.gemini_embedding_model,
+                google_api_key=current_settings.google_api_key,
+                dimensionality=current_settings.embedding_dimension,
+            )
+            self.is_local = False
+        else:
+            self.embeddings = LocalFastEmbeddings(
+                model_name="BAAI/bge-small-en-v1.5",
+                dimensionality=current_settings.embedding_dimension,
+            )
+            self.is_local = True
 
     def index_repository(self, db: Session, repository: Repository, user: User) -> IndexingResult:
         with TemporaryDirectory(prefix="repomind-index-") as temp_dir:
@@ -186,12 +193,12 @@ class RepositoryIndexer:
                 continue
 
             for chunk, vector in zip(batch, vectors, strict=False):
-                if len(vector) != settings.embedding_dimension:
+                if len(vector) != self.embedding_dimension:
                     logger.warning(
                         "Skipping embedding for chunk %s because dimension %s != %s.",
                         chunk.id,
                         len(vector),
-                        settings.embedding_dimension,
+                        self.embedding_dimension,
                     )
                     failures += 1
                     continue
@@ -199,8 +206,8 @@ class RepositoryIndexer:
                 chunk.embedding = vector
 
             logger.info("Embedded batch %d/%d (%d chunks)", batch_num, total_batches, len(batch))
-            # Rate-limit between batches to stay under the Gemini free tier RPM
-            time.sleep(5)
+            if not self.is_local:
+                time.sleep(5)
 
         return failures
 

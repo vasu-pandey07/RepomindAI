@@ -98,6 +98,12 @@ export function RepositoryCard({ repository }: { repository: Repository }) {
             </div>
           )}
         </div>
+
+        {indexMutation.isError && (
+          <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-2.5 text-xs text-red-600 dark:text-red-400">
+            {((indexMutation.error as any)?.response?.data?.detail as string) || "Indexing failed. Please check backend logs."}
+          </div>
+        )}
       </div>
 
       <div className="mt-6 flex items-center justify-between gap-4">

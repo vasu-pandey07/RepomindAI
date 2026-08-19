@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     gemini_chat_model: str = Field("gemini-flash-latest", alias="GEMINI_CHAT_MODEL")
     groq_api_key: str | None = Field(None, alias="GROQ_API_KEY")
     groq_model: str = Field("openai/gpt-oss-120b", alias="GROQ_MODEL")
-    embedding_dimension: int = Field(768, alias="EMBEDDING_DIMENSION")
+    embedding_provider: str = Field("fastembed", alias="EMBEDDING_PROVIDER")
+    embedding_dimension: int = Field(384, alias="EMBEDDING_DIMENSION")
     jwt_algorithm: str = "HS256"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
