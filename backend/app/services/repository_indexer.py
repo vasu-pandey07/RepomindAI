@@ -144,18 +144,16 @@ class RepositoryIndexer:
     def _clone_repository(self, full_name: str, access_token: str, clone_path: Path) -> None:
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
-        env["GIT_ASKPASS"] = ""
-        env["GCM_INTERACTIVE"] = "never"
         env["GIT_HTTP_LOW_SPEED_LIMIT"] = "1000"
-        env["GIT_HTTP_LOW_SPEED_TIME"] = "15"
+        env["GIT_HTTP_LOW_SPEED_TIME"] = "30"
 
         # Build candidate URLs in order of preference
         urls = []
         if access_token and access_token.strip():
             token = quote(access_token.strip(), safe="")
-            urls.append(f"https://{token}@github.com/{full_name}.git")
             urls.append(f"https://x-access-token:{token}@github.com/{full_name}.git")
             urls.append(f"https://oauth2:{token}@github.com/{full_name}.git")
+            urls.append(f"https://{token}@github.com/{full_name}.git")
 
         urls.append(f"https://github.com/{full_name}.git")
 

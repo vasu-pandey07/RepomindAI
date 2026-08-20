@@ -40,20 +40,20 @@ def on_startup():
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             conn.commit()
     except Exception as exc:
-        print(f"pgvector extension notice: {exc}")
+        logger.warning("pgvector extension notice: %s", exc)
 
     Base.metadata.create_all(bind=engine)
 
-    # Log current embedding dimension for debugging
+    # Ensure embedding column dimension matches settings.embedding_dimension
     try:
-        inspector = inspect(engine)
-        cols = inspector.get_columns("code_chunks")
-        for col in cols:
-            if col["name"] == "embedding":
-                print(f"✅ Embedding column exists: {col['type']}")
-                break
-    except Exception:
-        pass
+        with engine.connect() as conn:
+            conn.execute(
+                text(f"ALTER TABLE code_chunks ALTER COLUMN embedding TYPE vector({settings.embedding_dimension});")
+            )
+            conn.commit()
+            logger.info("✅ Verified code_chunks.embedding column is vector(%d)", settings.embedding_dimension)
+    except Exception as exc:
+        logger.info("Vector column check notice: %s", exc)
 
 
 @app.get("/health")

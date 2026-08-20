@@ -105,9 +105,8 @@ export function RepositoryCard({ repository }: { repository: Repository }) {
               const err = indexMutation.error as any;
               const detail = err?.response?.data?.detail;
               if (detail && typeof detail === "string") return detail;
-              const msg = err?.message || "";
-              if (msg.includes("status code")) return "Indexing failed. Please try again or re-login with GitHub.";
-              return msg || "Indexing failed. Please check backend logs.";
+              if (typeof err?.response?.data === "string") return err.response.data;
+              return err?.message || "Indexing failed. Please check backend logs.";
             })()}
           </div>
         )}
