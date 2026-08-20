@@ -77,9 +77,10 @@ SUPPORTED_EXTENSIONS = {
     ".yml",
 }
 
-MAX_FILE_SIZE_BYTES = 250 * 1024  # 250 KB max per file
-MAX_TOTAL_FILES = 300
-EMBEDDING_BATCH_SIZE = 64
+MAX_FILE_SIZE_BYTES = 100 * 1024  # 100 KB max per file
+MAX_TOTAL_FILES = 75               # Index top 75 source files for speed & accuracy
+MAX_TOTAL_CHUNKS = 400             # Max 400 chunks to ensure indexing completes in <15s
+EMBEDDING_BATCH_SIZE = 32          # Safe batch size for CPU and RAM
 
 
 def _remove_readonly(func, path, excinfo):
@@ -271,7 +272,13 @@ class RepositoryIndexer:
 
             chunks = self.splitter.split_text(repository_file.content)
             for chunk_index, chunk_content in enumerate(chunks):
+                if len(raw_chunks_data) >= MAX_TOTAL_CHUNKS:
+                    logger.info("Reached max chunk limit of %d", MAX_TOTAL_CHUNKS)
+                    break
                 raw_chunks_data.append((code_file.id, chunk_index, chunk_content))
+
+            if len(raw_chunks_data) >= MAX_TOTAL_CHUNKS:
+                break
 
         if not raw_chunks_data:
             db.commit()
