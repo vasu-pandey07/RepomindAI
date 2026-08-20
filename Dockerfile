@@ -36,6 +36,9 @@ WORKDIR /app/backend
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download FastEmbed model during image build (0 runtime download delay)
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+
 COPY backend/ ./
 
 # 2. Setup Frontend Standalone Build

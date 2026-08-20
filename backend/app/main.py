@@ -55,6 +55,16 @@ def on_startup():
     except Exception as exc:
         logger.info("Vector column check notice: %s", exc)
 
+    # Pre-warm FastEmbed model at startup
+    try:
+        if settings.embedding_provider == "fastembed":
+            from app.services.embeddings import get_fastembed_model
+            logger.info("Pre-warming FastEmbed model...")
+            get_fastembed_model()
+            logger.info("✅ FastEmbed model ready in memory.")
+    except Exception as exc:
+        logger.warning("Embedding model pre-warm notice: %s", exc)
+
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
