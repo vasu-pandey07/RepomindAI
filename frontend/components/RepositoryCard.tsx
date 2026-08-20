@@ -103,13 +103,11 @@ export function RepositoryCard({ repository }: { repository: Repository }) {
           <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-2.5 text-xs text-red-600 dark:text-red-400">
             {(() => {
               const err = indexMutation.error as any;
-              return (
-                err?.response?.data?.detail ||
-                err?.response?.data?.message ||
-                (typeof err?.response?.data === "string" && err.response.data) ||
-                err?.message ||
-                "Indexing failed. Please check backend logs."
-              );
+              const detail = err?.response?.data?.detail;
+              if (detail && typeof detail === "string") return detail;
+              const msg = err?.message || "";
+              if (msg.includes("status code")) return "Indexing failed. Please try again or re-login with GitHub.";
+              return msg || "Indexing failed. Please check backend logs.";
             })()}
           </div>
         )}

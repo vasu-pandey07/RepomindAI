@@ -19,9 +19,6 @@ class AgentNodes:
 
     @property
     def retriever(self) -> RepositoryRetriever:
-        current_settings = get_settings()
-        if not current_settings.google_api_key:
-            raise ValueError("GOOGLE_API_KEY must be configured before running AI agents.")
         return RepositoryRetriever()
 
     @property

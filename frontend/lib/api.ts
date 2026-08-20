@@ -5,10 +5,13 @@ import axios from "axios";
 import { getToken } from "@/lib/auth";
 
 const getBaseUrl = () => {
-  if (process.env.NEXT_PUBLIC_API_URL !== undefined) {
-    return process.env.NEXT_PUBLIC_API_URL;
+  // In the browser, always use relative URLs — the Next.js API route proxies
+  // will forward requests to the internal backend (works in both dev and prod)
+  if (typeof window !== "undefined") {
+    return "";
   }
-  return typeof window !== "undefined" ? "" : "http://localhost:8000";
+  // Server-side (SSR): use internal backend URL
+  return process.env.INTERNAL_BACKEND_URL || "http://127.0.0.1:8000";
 };
 
 export const api = axios.create({

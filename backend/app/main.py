@@ -27,31 +27,27 @@ app.include_router(agents.router)
 def on_startup():
     from app.db.database import Base, engine
     import app.db.models  # noqa: F401
-    from sqlalchemy import text
-    from app.core.config import get_settings
-
-    current_settings = get_settings()
-    dim = current_settings.embedding_dimension
+    from sqlalchemy import text, inspect
 
     try:
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            # Safely ensure embedding column uses exact vector dimension (384 for FastEmbed)
-            conn.execute(text("ALTER TABLE code_chunks DROP COLUMN IF EXISTS embedding CASCADE;"))
-            conn.execute(text(f"ALTER TABLE code_chunks ADD COLUMN embedding vector({dim});"))
             conn.commit()
-            print(f"✅ Vector column initialized with dimension {dim}.")
     except Exception as exc:
-        print(f"Database startup extension/migration notice: {exc}")
+        print(f"pgvector extension notice: {exc}")
 
     Base.metadata.create_all(bind=engine)
 
-    # Pre-warm FastEmbed model in memory
+    # Log current embedding dimension for debugging
     try:
-        from app.services.embeddings import get_fastembed_model
-        get_fastembed_model()
-    except Exception as exc:
-        print(f"FastEmbed pre-warm notice: {exc}")
+        inspector = inspect(engine)
+        cols = inspector.get_columns("code_chunks")
+        for col in cols:
+            if col["name"] == "embedding":
+                print(f"✅ Embedding column exists: {col['type']}")
+                break
+    except Exception:
+        pass
 
 
 @app.get("/health")

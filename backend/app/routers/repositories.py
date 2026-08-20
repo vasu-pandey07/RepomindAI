@@ -89,9 +89,30 @@ def index_repository(
     try:
         indexer = RepositoryIndexer()
         result = indexer.index_repository(db, repository, current_user)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except RuntimeError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        error_msg = str(exc).lower()
+        if "authentication" in error_msg or "403" in error_msg or "401" in error_msg or "fatal:" in error_msg or "token" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GitHub token expired or invalid. Please sign out and log back in with GitHub to refresh your session.",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Repository indexing failed: {str(exc)}",
+        ) from exc
     except Exception as exc:
         db.rollback()
         raise HTTPException(
