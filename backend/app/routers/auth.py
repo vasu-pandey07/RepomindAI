@@ -17,7 +17,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/github/login")
 async def github_login(request: Request) -> RedirectResponse:
     current_settings = get_settings()
-    redirect_uri = f"{current_settings.frontend_url}/auth/github/callback"
+    frontend_base = (
+        str(current_settings.frontend_url)
+        .replace("\r", "")
+        .replace("\n", "")
+        .replace("%0A", "")
+        .replace("%0a", "")
+        .strip()
+        .rstrip("/")
+    )
+    redirect_uri = f"{frontend_base}/auth/github/callback"
     github_auth_url = (
         f"https://github.com/login/oauth/authorize?"
         f"client_id={current_settings.github_client_id}&"
@@ -41,6 +50,17 @@ async def github_callback(
             detail=f"GitHub authorization rejected: {error or 'No code provided'}",
         )
 
+    frontend_base = (
+        str(current_settings.frontend_url)
+        .replace("\r", "")
+        .replace("\n", "")
+        .replace("%0A", "")
+        .replace("%0a", "")
+        .strip()
+        .rstrip("/")
+    )
+    redirect_uri = f"{frontend_base}/auth/github/callback"
+
     # Direct exchange with GitHub OAuth API (session-independent)
     async with httpx.AsyncClient(timeout=20.0) as client:
         token_response = await client.post(
@@ -50,7 +70,7 @@ async def github_callback(
                 "client_id": current_settings.github_client_id,
                 "client_secret": current_settings.github_client_secret,
                 "code": code,
-                "redirect_uri": f"{current_settings.frontend_url}/auth/github/callback",
+                "redirect_uri": redirect_uri,
             },
         )
         token_data = token_response.json()
@@ -85,7 +105,7 @@ async def github_callback(
     db.refresh(user)
 
     jwt_token = create_access_token(str(user.id))
-    frontend_callback_url = f"{current_settings.frontend_url}/auth/callback?token={jwt_token}"
+    frontend_callback_url = f"{frontend_base}/auth/callback?token={jwt_token}"
     return RedirectResponse(frontend_callback_url)
 
 

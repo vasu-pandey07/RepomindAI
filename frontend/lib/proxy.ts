@@ -44,10 +44,27 @@ export async function proxyToBackend(
   try {
     const backendResponse = await fetch(targetUrl, init);
 
-    // Handle redirects — rewrite backend URLs to frontend-relative URLs
+    // Handle redirects — sanitize location and forward 307 response directly to browser
     const location = backendResponse.headers.get("location");
     if (location) {
-      return Response.redirect(location, backendResponse.status || 302);
+      const cleanLocation = location
+        .replace(/[\r\n\t]+/g, "")
+        .replace(/%0A/gi, "")
+        .replace(/%0D/gi, "")
+        .trim();
+
+      const redirectHeaders = new Headers();
+      redirectHeaders.set("Location", cleanLocation);
+
+      const setCookie = backendResponse.headers.get("set-cookie");
+      if (setCookie) {
+        redirectHeaders.set("set-cookie", setCookie);
+      }
+
+      return new Response(null, {
+        status: backendResponse.status || 307,
+        headers: redirectHeaders,
+      });
     }
 
     // Stream the response back
