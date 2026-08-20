@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = Field("models/gemini-embedding-001", alias="GEMINI_EMBEDDING_MODEL")
     gemini_chat_model: str = Field("gemini-flash-latest", alias="GEMINI_CHAT_MODEL")
     groq_api_key: str | None = Field(None, alias="GROQ_API_KEY")
-    groq_model: str = Field("openai/gpt-oss-120b", alias="GROQ_MODEL")
+    groq_model: str = Field("llama-3.3-70b-versatile", alias="GROQ_MODEL")
     embedding_provider: str = Field("fastembed", alias="EMBEDDING_PROVIDER")
     embedding_dimension: int = Field(384, alias="EMBEDDING_DIMENSION")
     jwt_algorithm: str = "HS256"
