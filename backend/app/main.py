@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -5,6 +6,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import settings
 from app.routers import agents, auth, chat, repositories
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("repomind")
 
 app = FastAPI(title="RepoMind AI API", version="0.1.0")
 
