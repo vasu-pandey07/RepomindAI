@@ -1,42 +1,26 @@
 import re
 from typing import Dict, Any, List
 from langchain_core.runnables import RunnableConfig
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings, settings
+from app.core.config import get_settings
 from app.db.models import CodeFile, Repository
 from app.graphs.state import AgentState
+from app.services.rag_service import invoke_llm_with_fallback
 from app.services.retriever import RepositoryRetriever
 
 
 class AgentNodes:
     def __init__(self) -> None:
         self._retriever = None
-        self._llm = None
 
     @property
     def retriever(self) -> RepositoryRetriever:
         return RepositoryRetriever()
 
-    @property
-    def llm(self):
-        current_settings = get_settings()
-        if current_settings.groq_api_key:
-            return ChatGroq(
-                model_name=current_settings.groq_model,
-                groq_api_key=current_settings.groq_api_key,
-                temperature=0.1,
-            )
-        if not current_settings.google_api_key:
-            raise ValueError("Either GROQ_API_KEY or GOOGLE_API_KEY must be configured before running AI agents.")
-        return ChatGoogleGenerativeAI(
-            model=current_settings.gemini_chat_model,
-            google_api_key=current_settings.google_api_key,
-            temperature=0.1,
-        )
+    def call_llm(self, prompt: str) -> str:
+        return invoke_llm_with_fallback(prompt)
 
     def retrieve_context_node(self, state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         """
@@ -242,8 +226,8 @@ Repository context:
 Create a technical index planning the document generation structure.
 """
 
-        response = self.llm.invoke(prompt)
-        return {"analysis": str(response.content).strip()}
+        analysis_text = self.call_llm(prompt)
+        return {"analysis": analysis_text}
 
     def generate_response_node(self, state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         """
@@ -277,8 +261,7 @@ Analysis:
 
 Markdown PR Review:
 """
-            response = self.llm.invoke(prompt)
-            result_content = str(response.content).strip()
+            result_content = self.call_llm(prompt)
 
             # Parse issue count
             issues_found = 0
@@ -312,8 +295,7 @@ Analysis:
 
 Write the full test file code inside a single code block:
 """
-            response = self.llm.invoke(prompt)
-            result_content = str(response.content).strip()
+            result_content = self.call_llm(prompt)
             return {"result": result_content}
 
         else:
@@ -342,6 +324,5 @@ Analysis:
 
 Comprehensive Markdown Documentation:
 """
-            response = self.llm.invoke(prompt)
-            result_content = str(response.content).strip()
+            result_content = self.call_llm(prompt)
             return {"result": result_content}
