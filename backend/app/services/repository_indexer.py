@@ -140,8 +140,7 @@ class RepositoryIndexer:
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
         self.embedding_dimension = current_settings.embedding_dimension
 
-        # Use Gemini remote API if key is available (0 MB RAM overhead)
-        if current_settings.google_api_key:
+        if current_settings.embedding_provider == "gemini" and current_settings.google_api_key:
             self.embeddings = GeminiEmbeddings(
                 model=current_settings.gemini_embedding_model,
                 google_api_key=current_settings.google_api_key,

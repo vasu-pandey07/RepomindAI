@@ -20,7 +20,7 @@ class RetrievedChunk:
 class RepositoryRetriever:
     def __init__(self) -> None:
         current_settings = get_settings()
-        if current_settings.google_api_key:
+        if current_settings.embedding_provider == "gemini" and current_settings.google_api_key:
             self.embeddings = GeminiEmbeddings(
                 model=current_settings.gemini_embedding_model,
                 google_api_key=current_settings.google_api_key,
