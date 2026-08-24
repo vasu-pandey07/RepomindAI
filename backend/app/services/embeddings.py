@@ -23,7 +23,7 @@ def get_fastembed_model():
 
 class LocalFastEmbeddings(Embeddings):
     """
-    High-performance, local embedding model that runs directly on CPU with 0 API calls.
+    Local embedding model for environments with sufficient RAM (>= 1GB).
     """
     def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", dimensionality: int = 384):
         self.model_name = model_name
@@ -55,17 +55,27 @@ class LocalFastEmbeddings(Embeddings):
 class GeminiEmbeddings(Embeddings):
     """
     Zero-RAM, high-speed remote embeddings powered by Google Gemini API.
+    Uses text-embedding-004 which supports true batching (1 API request per batch).
     """
     def __init__(self, model: str = "models/text-embedding-004", google_api_key: str = "", dimensionality: int = 384):
         import google.generativeai as genai
-        self.model = model if model.startswith("models/") else f"models/{model}"
+        
+        # Ensure we always use the modern batch-capable text-embedding-004 model
+        # (even if older deprecated gemini-embedding-001 is set in env vars)
+        clean_model = model.replace("models/", "").strip()
+        if "gemini-embedding" in clean_model or not clean_model:
+            clean_model = "text-embedding-004"
+            
+        self.model = f"models/{clean_model}"
         self.google_api_key = google_api_key
         self.dimensionality = dimensionality
         genai.configure(api_key=google_api_key)
 
-    def _embed_with_retry(self, content, max_retries: int = 3, initial_delay: float = 1.0) -> list:
+    def _call_gemini_embed(self, content, max_retries: int = 4, initial_delay: float = 2.0):
         import google.generativeai as genai
+        import re
         delay = initial_delay
+
         for attempt in range(max_retries):
             try:
                 response = genai.embed_content(
@@ -79,11 +89,14 @@ class GeminiEmbeddings(Embeddings):
                 is_rate_limit = "429" in err_msg or "exhausted" in err_msg or "quota" in err_msg or "rate limit" in err_msg
                 
                 if is_rate_limit and attempt < max_retries - 1:
+                    # Check if retry delay was specified in error message
+                    match = re.search(r"retry(?:_delay|\s+in)\s*[:=]?\s*(\d+(?:\.\d+)?)", err_msg)
+                    wait_sec = float(match.group(1)) + 1.0 if match else delay
                     logger.warning(
-                        "Gemini embedding API rate limit hit (429). Retrying in %.2f seconds (attempt %d/%d)...",
-                        delay, attempt + 1, max_retries
+                        "Gemini rate limit hit (429). Backing off for %.1f seconds (attempt %d/%d)...",
+                        wait_sec, attempt + 1, max_retries
                     )
-                    time.sleep(delay)
+                    time.sleep(wait_sec)
                     delay *= 2.0
                 else:
                     raise e
@@ -91,23 +104,40 @@ class GeminiEmbeddings(Embeddings):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        try:
-            result = self._embed_with_retry(texts)
-            if isinstance(result, list) and result and isinstance(result[0], list):
-                return result
-        except Exception as batch_exc:
-            logger.info("Batch embedding fallback to single item embedding: %s", batch_exc)
 
-        vectors: list[list[float]] = []
-        for idx, text in enumerate(texts):
+        # Send in true sub-batches of 25 to stay well under API payload limits
+        # and consume only 1 request per 25 chunks!
+        all_embeddings: list[list[float]] = []
+        batch_size = 25
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
             try:
-                vectors.append(self._embed_with_retry(text))
-            except Exception as e:
-                raise RuntimeError(f"Error embedding content: {e}") from e
-        return vectors
+                res = self._call_gemini_embed(batch)
+                # When batch is a list, res is list of list of floats
+                if isinstance(res, list) and res and isinstance(res[0], list):
+                    all_embeddings.extend(res)
+                elif isinstance(res, list) and res and isinstance(res[0], (int, float)):
+                    all_embeddings.append(res)
+                else:
+                    raise ValueError(f"Unexpected response shape from Gemini embedding: {type(res)}")
+            except Exception as batch_exc:
+                logger.warning("Batch embedding attempt failed (%s), processing item by item with delay...", batch_exc)
+                for item in batch:
+                    item_res = self._call_gemini_embed(item)
+                    all_embeddings.append(item_res)
+                    time.sleep(0.3)  # Gentle spacing to stay under 100 req/min
+
+            if i + batch_size < len(texts):
+                time.sleep(0.5)  # Spacing between batches
+
+        return all_embeddings
 
     def embed_query(self, text: str) -> list[float]:
         try:
-            return self._embed_with_retry(text)
+            res = self._call_gemini_embed(text)
+            if isinstance(res, list) and res and isinstance(res[0], list):
+                return res[0]
+            return res
         except Exception as e:
-            raise RuntimeError(f"Error embedding query: {e}") from e
+            raise RuntimeError(f"Error embedding query with Gemini: {e}") from e

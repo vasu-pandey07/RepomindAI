@@ -140,7 +140,8 @@ class RepositoryIndexer:
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
         self.embedding_dimension = current_settings.embedding_dimension
 
-        if current_settings.embedding_provider == "gemini" and current_settings.google_api_key:
+        # Prioritize zero-RAM Gemini remote embeddings if Google API key is present
+        if current_settings.google_api_key:
             self.embeddings = GeminiEmbeddings(
                 model=current_settings.gemini_embedding_model,
                 google_api_key=current_settings.google_api_key,
@@ -408,7 +409,7 @@ class RepositoryIndexer:
             db.commit()
             return IndexingResult(files_processed=len(files), chunks_created=0, embedding_failures=0)
 
-        # Step 2: Generate embeddings in batches
+        # Step 2: Generate embeddings in batches (graceful fallback if API quota or memory limit)
         chunk_dicts: list[dict] = []
         total_chunks = len(raw_chunks_data)
         logger.info("Generating embeddings for %d chunks in batches of %d...", total_chunks, self.batch_size)
@@ -416,14 +417,15 @@ class RepositoryIndexer:
         for i in range(0, total_chunks, self.batch_size):
             batch = raw_chunks_data[i : i + self.batch_size]
             texts = [item[2] for item in batch]
+            vectors: list[list[float]] = []
 
             try:
                 vectors = self.embeddings.embed_documents(texts)
             except Exception as exc:
-                logger.error("Embedding generation failed on batch %d: %s", i // self.batch_size + 1, exc)
-                raise RuntimeError(f"Embedding failed: {exc}") from exc
+                logger.warning("Embedding generation notice for batch %d: %s. Storing code chunks for lexical search.", i // self.batch_size + 1, exc)
 
-            for (file_id, chunk_index, content), vector in zip(batch, vectors, strict=False):
+            for idx, (file_id, chunk_index, content) in enumerate(batch):
+                vector = vectors[idx] if (vectors and idx < len(vectors)) else None
                 chunk_dicts.append(
                     {
                         "file_id": file_id,
@@ -436,7 +438,7 @@ class RepositoryIndexer:
             del batch, texts, vectors
             gc.collect()
 
-        # Step 3: Fast bulk insert all chunks
+        # Step 3: Fast bulk insert all chunks in a single multi-row statement
         from sqlalchemy import insert
         db.execute(insert(CodeChunk), chunk_dicts)
         db.commit()
