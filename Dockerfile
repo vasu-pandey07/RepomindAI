@@ -36,6 +36,18 @@ WORKDIR /app/backend
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Constrain native thread pools (ONNXRuntime / OpenMP / BLAS) to a single
+# thread. On Render's free tier (0.1 shared CPU, 512MB RAM) the default of
+# "use all cores" causes large per-thread memory arenas and CPU thrashing
+# during embedding, which OOM-kills the backend mid-indexing. One thread is
+# both lighter on RAM and, on a fractional CPU, no slower in practice.
+ENV OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    ONNXRUNTIME_INTRA_OP_NUM_THREADS=1 \
+    TOKENIZERS_PARALLELISM=false
+
 # Pre-download FastEmbed model during image build (0 runtime download delay)
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
 

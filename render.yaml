@@ -25,10 +25,18 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
       - key: GEMINI_EMBEDDING_MODEL
-        value: models/gemini-embedding-001
+        value: models/text-embedding-004
       - key: GEMINI_CHAT_MODEL
-        value: gemini-flash-latest
+        value: gemini-1.5-flash
+      # EMBEDDING_PROVIDER selects how code chunks are embedded during indexing:
+      #   "fastembed" — runs the model locally in-container (no API, but uses
+      #                 ~200MB+ RAM; can OOM-kill the backend on the free tier).
+      #   "gemini"    — offloads embeddings to the Google API (near-zero local
+      #                 RAM). Set this if indexing keeps failing with 502s on the
+      #                 free tier. Requires GOOGLE_API_KEY to be set, and you must
+      #                 RE-INDEX each repository after switching (different model =
+      #                 different vector space). Keep EMBEDDING_DIMENSION at 384.
       - key: EMBEDDING_PROVIDER
         value: fastembed
       - key: EMBEDDING_DIMENSION
-        value: 384
+        value: 384 # must match for both providers so the pgvector column is stable

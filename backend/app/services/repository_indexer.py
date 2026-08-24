@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import gc
 import logging
 import os
 from pathlib import Path
@@ -6,7 +7,6 @@ import shutil
 import stat
 import subprocess
 import tempfile
-import time
 from urllib.parse import quote
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -30,11 +30,14 @@ IGNORED_DIRECTORIES = {
     ".venv",
     ".vscode",
     "__pycache__",
+    "assets",
     "build",
     "coverage",
     "dist",
     "node_modules",
     "out",
+    "public",
+    "static",
     "target",
     "vendor",
     "venv",
@@ -77,10 +80,11 @@ SUPPORTED_EXTENSIONS = {
     ".yml",
 }
 
-MAX_FILE_SIZE_BYTES = 100 * 1024  # 100 KB max per file
-MAX_TOTAL_FILES = 75               # Index top 75 source files for speed & accuracy
-MAX_TOTAL_CHUNKS = 400             # Max 400 chunks to ensure indexing completes in <15s
-EMBEDDING_BATCH_SIZE = 32          # Safe batch size for CPU and RAM
+MAX_FILE_SIZE_BYTES = 50 * 1024   # 50 KB max per file (avoids massive fixtures/bundles)
+MAX_TOTAL_FILES = 40              # Top 40 high-value source files
+MAX_TOTAL_CHUNKS = 100            # Up to 100 high-value semantic chunks for fast indexing
+EMBEDDING_BATCH_SIZE_LOCAL = 32   # Vectorized batch inference for FastEmbed ONNX
+EMBEDDING_BATCH_SIZE_API = 50     # Batch size for Gemini API
 
 
 def _remove_readonly(func, path, excinfo):
@@ -90,6 +94,27 @@ def _remove_readonly(func, path, excinfo):
         func(path)
     except Exception:
         pass
+
+
+def _get_file_priority(relative_path: str) -> int:
+    """Assign lower number for higher indexing importance."""
+    name_lower = Path(relative_path).name.lower()
+    path_lower = relative_path.lower()
+
+    # Priority 0: Primary documentation and project configuration
+    if name_lower in ("readme.md", "readme", "package.json", "requirements.txt", "pyproject.toml", "go.mod", "cargo.toml", "dockerfile"):
+        return 0
+
+    # Priority 1: Top-level entry points and key application files
+    if any(name_lower.startswith(prefix) for prefix in ("main.", "app.", "index.", "server.", "route.", "page.")):
+        return 1
+
+    # Priority 2: Core source tree directories
+    if any(dir_name in path_lower for dir_name in ("src/", "app/", "lib/", "routes/", "controllers/", "services/", "models/", "components/", "api/")):
+        return 2
+
+    # Priority 3: Other code files
+    return 3
 
 
 @dataclass(frozen=True)
@@ -108,7 +133,7 @@ class IndexingResult:
 class RepositoryIndexer:
     def __init__(self) -> None:
         current_settings = get_settings()
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
         self.embedding_dimension = current_settings.embedding_dimension
 
         if current_settings.embedding_provider == "gemini" and current_settings.google_api_key:
@@ -124,6 +149,8 @@ class RepositoryIndexer:
                 dimensionality=current_settings.embedding_dimension,
             )
             self.is_local = True
+
+        self.batch_size = EMBEDDING_BATCH_SIZE_LOCAL if self.is_local else EMBEDDING_BATCH_SIZE_API
 
     def index_repository(self, db: Session, repository: Repository, user: User) -> IndexingResult:
         temp_dir = tempfile.mkdtemp(prefix="repomind-index-")
@@ -146,7 +173,7 @@ class RepositoryIndexer:
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_HTTP_LOW_SPEED_LIMIT"] = "1000"
-        env["GIT_HTTP_LOW_SPEED_TIME"] = "30"
+        env["GIT_HTTP_LOW_SPEED_TIME"] = "20"
 
         # Build candidate URLs in order of preference
         urls = []
@@ -180,18 +207,18 @@ class RepositoryIndexer:
                     stderr=subprocess.PIPE,
                     text=True,
                     env=env,
-                    timeout=120,
+                    timeout=25,
                 )
                 return  # Clone succeeded
             except FileNotFoundError as exc:
                 raise RuntimeError("Git is not installed or not available on PATH.") from exc
             except subprocess.TimeoutExpired:
                 last_error = "Git clone operation timed out."
-                logger.warning("Git clone timeout for %s on %s", full_name, url.split("@")[-1])
+                logger.warning("Git clone timeout for %s", full_name)
                 continue
             except subprocess.CalledProcessError as exc:
                 last_error = exc.stderr.strip() if exc.stderr else "Unknown git clone error"
-                logger.warning("Git clone failed for %s: %s", full_name, last_error)
+                logger.warning("Git clone attempt failed for %s: %s", full_name, last_error)
                 continue
 
         if "authentication" in last_error.lower() or "403" in last_error or "401" in last_error or "could not read Username" in last_error:
@@ -203,7 +230,7 @@ class RepositoryIndexer:
         raise RuntimeError(f"Failed to clone repository {full_name}: {last_error}")
 
     def _read_supported_files(self, repository_path: Path) -> list[RepositoryFile]:
-        files: list[RepositoryFile] = []
+        candidates: list[tuple[int, int, Path, str]] = []  # (priority, depth, path, relative_path)
 
         for root, dirnames, filenames in os.walk(repository_path):
             dirnames[:] = [
@@ -212,16 +239,15 @@ class RepositoryIndexer:
             ]
 
             for filename in filenames:
-                if len(files) >= MAX_TOTAL_FILES:
-                    logger.warning("Reached maximum file limit of %d", MAX_TOTAL_FILES)
-                    return files
-
                 name_lower = filename.lower()
                 if (
                     name_lower in IGNORED_FILE_PATTERNS
                     or name_lower.endswith(".min.js")
                     or name_lower.endswith(".min.css")
                     or name_lower.endswith(".map")
+                    or name_lower.endswith(".svg")
+                    or ".test." in name_lower
+                    or ".spec." in name_lower
                 ):
                     continue
 
@@ -233,16 +259,26 @@ class RepositoryIndexer:
                     stat_res = path.stat()
                     if stat_res.st_size > MAX_FILE_SIZE_BYTES:
                         continue
-                    content = path.read_text(encoding="utf-8", errors="ignore")
-                except OSError as exc:
-                    logger.warning("Skipping unreadable file %s: %s", path, exc)
-                    continue
-
-                if not content.strip():
+                except OSError:
                     continue
 
                 relative_path = path.relative_to(repository_path).as_posix()
-                files.append(RepositoryFile(path=relative_path, content=content))
+                priority = _get_file_priority(relative_path)
+                depth = relative_path.count("/")
+                candidates.append((priority, depth, path, relative_path))
+
+        # Sort files by priority ascending, then shallow depth ascending
+        candidates.sort(key=lambda x: (x[0], x[1], x[3]))
+
+        files: list[RepositoryFile] = []
+        for _, _, path, relative_path in candidates[:MAX_TOTAL_FILES]:
+            try:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+                if content.strip():
+                    files.append(RepositoryFile(path=relative_path, content=content))
+            except OSError as exc:
+                logger.warning("Skipping unreadable file %s: %s", path, exc)
+                continue
 
         return files
 
@@ -252,7 +288,7 @@ class RepositoryIndexer:
         repository_id: int,
         files: list[RepositoryFile],
     ) -> IndexingResult:
-        # Delete old records
+        # Delete old records for this repository
         old_file_ids = [r[0] for r in db.query(CodeFile.id).filter(CodeFile.repository_id == repository_id).all()]
         if old_file_ids:
             db.query(CodeChunk).filter(CodeChunk.file_id.in_(old_file_ids)).delete(synchronize_session=False)
@@ -273,7 +309,6 @@ class RepositoryIndexer:
             chunks = self.splitter.split_text(repository_file.content)
             for chunk_index, chunk_content in enumerate(chunks):
                 if len(raw_chunks_data) >= MAX_TOTAL_CHUNKS:
-                    logger.info("Reached max chunk limit of %d", MAX_TOTAL_CHUNKS)
                     break
                 raw_chunks_data.append((code_file.id, chunk_index, chunk_content))
 
@@ -287,16 +322,16 @@ class RepositoryIndexer:
         # Step 2: Generate embeddings in batches and prepare insert dictionaries
         chunk_dicts: list[dict] = []
         total_chunks = len(raw_chunks_data)
-        logger.info("Generating embeddings for %d chunks in batches of %d...", total_chunks, EMBEDDING_BATCH_SIZE)
+        logger.info("Generating embeddings for %d chunks in batches of %d...", total_chunks, self.batch_size)
 
-        for i in range(0, total_chunks, EMBEDDING_BATCH_SIZE):
-            batch = raw_chunks_data[i : i + EMBEDDING_BATCH_SIZE]
+        for i in range(0, total_chunks, self.batch_size):
+            batch = raw_chunks_data[i : i + self.batch_size]
             texts = [item[2] for item in batch]
 
             try:
                 vectors = self.embeddings.embed_documents(texts)
             except Exception as exc:
-                logger.error("Embedding generation failed on batch %d: %s", i // EMBEDDING_BATCH_SIZE + 1, exc)
+                logger.error("Embedding generation failed on batch %d: %s", i // self.batch_size + 1, exc)
                 raise RuntimeError(f"Embedding failed: {exc}") from exc
 
             for (file_id, chunk_index, content), vector in zip(batch, vectors, strict=False):
@@ -309,8 +344,8 @@ class RepositoryIndexer:
                     }
                 )
 
-            if not self.is_local:
-                time.sleep(2)
+            del batch, texts, vectors
+            gc.collect()
 
         # Step 3: Fast bulk insert all chunks in a single multi-row statement
         from sqlalchemy import insert

@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Send } from "lucide-react";
+import { Send, AlertCircle, CheckCircle2, Database, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type { ChatMessage, ChatResponse, Repository } from "@/types";
+import type { ChatMessage, ChatResponse, Repository, RepositoryIndexStatus } from "@/types";
 
 async function fetchRepositories() {
   const response = await api.get<Repository[]>("/repositories");
@@ -41,6 +41,19 @@ export function RepositoryChatPanel() {
     }
   }, [repositories, selectedRepositoryId]);
 
+  // Query index status of currently selected repository
+  const indexStatusQuery = useQuery<RepositoryIndexStatus>({
+    queryKey: ["repository-status", selectedRepositoryId],
+    queryFn: async () => {
+      if (!selectedRepositoryId) return null as any;
+      const res = await api.get<RepositoryIndexStatus>(`/repositories/${selectedRepositoryId}/index-status`);
+      return res.data;
+    },
+    enabled: selectedRepositoryId !== null,
+  });
+
+  const isRepoIndexed = indexStatusQuery.data?.indexed;
+
   const chatMutation = useMutation({
     mutationFn: askRepositoryQuestion,
     onSuccess: (data) => {
@@ -50,12 +63,20 @@ export function RepositoryChatPanel() {
         { role: "assistant", content: data.answer, sources: data.sources },
       ]);
     },
-    onError: () => {
+    onError: (err: any) => {
+      const detail =
+        err?.response?.data?.detail ||
+        (typeof err?.response?.data === "string" && !err?.response?.data.includes("<html")
+          ? err.response.data
+          : null) ||
+        err?.message ||
+        "I could not answer from this repository right now. Check that it is indexed.";
+
       setMessages((current) => [
         ...current,
         {
           role: "assistant",
-          content: "I could not answer from this repository right now. Check that it is indexed.",
+          content: `⚠️ ${detail}`,
           sources: [],
         },
       ]);
@@ -89,9 +110,30 @@ export function RepositoryChatPanel() {
       <div className="border-b border-border/50 p-5 bg-card/40 backdrop-blur-sm">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="space-y-1">
-            <h2 className="text-xl font-bold tracking-tight text-foreground">Repository Chat</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight text-foreground">Repository Chat</h2>
+              {selectedRepositoryId && !indexStatusQuery.isLoading && (
+                <span
+                  className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${
+                    isRepoIndexed
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                  }`}
+                >
+                  {isRepoIndexed ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3" /> Indexed
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-3 w-3" /> Not Indexed
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Ask questions using only indexed repository context.
+              Ask questions using verified code files and semantic embeddings.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -118,11 +160,26 @@ export function RepositoryChatPanel() {
 
       <div className="flex min-h-[28rem] flex-col">
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {selectedRepositoryId && !indexStatusQuery.isLoading && !isRepoIndexed && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">This repository has not been vector indexed yet</p>
+                <p className="mt-1 text-muted-foreground">
+                  Click <strong>&quot;Index Repository&quot;</strong> in the repositories list above so RepoMind can analyze its code structure, models, and routes.
+                </p>
+              </div>
+            </div>
+          )}
+
           {messages.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border/60 p-8 text-center bg-muted/10">
-              <h3 className="font-semibold text-sm text-foreground">Start with an indexed repository</h3>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Try asking how authentication, routing, data models, or API calls work.
+              <div className="mx-auto w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <h3 className="font-semibold text-sm text-foreground">Ask anything about this codebase</h3>
+              <p className="mt-2 text-xs text-muted-foreground max-w-sm mx-auto">
+                Ask how authentication works, trace API endpoints, find where schemas are defined, or request architectural summaries.
               </p>
             </div>
           ) : (
