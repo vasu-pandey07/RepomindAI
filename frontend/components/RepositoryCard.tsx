@@ -106,13 +106,8 @@ export function RepositoryCard({ repository }: { repository: Repository }) {
               const detail = err?.response?.data?.detail;
               if (detail && typeof detail === "string") return detail;
               const data = err?.response?.data;
-              if (typeof data === "string") {
-                if (data.includes("<html") || data.includes("<title>502")) {
-                  return "Server took too long to index. Optimized indexer applied — try again.";
-                }
-                return data;
-              }
-              return err?.message || "Indexing failed. Please check backend logs.";
+              if (typeof data === "string" && !data.includes("<html")) return data;
+              return err?.message || "Indexing failed. Please verify repository permissions.";
             })()}
           </div>
         )}

@@ -14,20 +14,16 @@ def get_fastembed_model():
     if _fastembed_model is None:
         from fastembed import TextEmbedding
         logger.info("Initializing Local FastEmbed model (BAAI/bge-small-en-v1.5)...")
-        # threads=1 keeps the ONNXRuntime memory arena small so the model fits
-        # inside the 512MB free-tier limit without being OOM-killed.
         try:
             _fastembed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", threads=1)
         except TypeError:
-            # Fallback for fastembed versions that don't accept `threads`.
             _fastembed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
     return _fastembed_model
 
 
 class LocalFastEmbeddings(Embeddings):
     """
-    High-performance, local embedding model that runs directly on CPU with 0 API calls,
-    0 quotas, and 100% offline reliability.
+    High-performance, local embedding model that runs directly on CPU with 0 API calls.
     """
     def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", dimensionality: int = 384):
         self.model_name = model_name
@@ -39,7 +35,7 @@ class LocalFastEmbeddings(Embeddings):
             return []
         try:
             try:
-                embeddings_generator = self._model.embed(texts, batch_size=32)
+                embeddings_generator = self._model.embed(texts, batch_size=16)
             except TypeError:
                 embeddings_generator = self._model.embed(texts)
             return [vector.tolist() for vector in embeddings_generator]
@@ -57,14 +53,17 @@ class LocalFastEmbeddings(Embeddings):
 
 
 class GeminiEmbeddings(Embeddings):
-    def __init__(self, model: str, google_api_key: str, dimensionality: int = 768):
+    """
+    Zero-RAM, high-speed remote embeddings powered by Google Gemini API.
+    """
+    def __init__(self, model: str = "models/text-embedding-004", google_api_key: str = "", dimensionality: int = 384):
         import google.generativeai as genai
-        self.model = model
+        self.model = model if model.startswith("models/") else f"models/{model}"
         self.google_api_key = google_api_key
         self.dimensionality = dimensionality
         genai.configure(api_key=google_api_key)
 
-    def _embed_with_retry(self, content, max_retries: int = 5, initial_delay: float = 2.0) -> list:
+    def _embed_with_retry(self, content, max_retries: int = 3, initial_delay: float = 1.0) -> list:
         import google.generativeai as genai
         delay = initial_delay
         for attempt in range(max_retries):
@@ -92,37 +91,23 @@ class GeminiEmbeddings(Embeddings):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        # Prefer a single batched request (one HTTP round-trip for the whole
-        # list). Some Gemini embedding models — notably gemini-embedding-001 —
-        # have restricted batchEmbedContents to a single input at times. If the
-        # batch call fails for that (or any) reason, fall back to embedding each
-        # text individually so indexing still completes. A genuine error (bad
-        # API key, unsupported dimension, etc.) will resurface on the first
-        # per-item call below and be raised, so we don't silently mask it.
         try:
             result = self._embed_with_retry(texts)
             if isinstance(result, list) and result and isinstance(result[0], list):
                 return result
-            logger.warning(
-                "Gemini batch embedding returned an unexpected shape for a list "
-                "input; falling back to per-item embedding."
-            )
         except Exception as batch_exc:
-            logger.warning(
-                "Gemini batch embedding failed (%s); falling back to per-item embedding.",
-                batch_exc,
-            )
+            logger.info("Batch embedding fallback to single item embedding: %s", batch_exc)
 
         vectors: list[list[float]] = []
         for idx, text in enumerate(texts):
             try:
                 vectors.append(self._embed_with_retry(text))
             except Exception as e:
-                raise RuntimeError(f"Error embedding content (item {idx}): {e}") from e
+                raise RuntimeError(f"Error embedding content: {e}") from e
         return vectors
 
     def embed_query(self, text: str) -> list[float]:
         try:
             return self._embed_with_retry(text)
         except Exception as e:
-            raise RuntimeError(f"Error embedding content: {e}")
+            raise RuntimeError(f"Error embedding query: {e}") from e
