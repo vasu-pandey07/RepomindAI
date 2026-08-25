@@ -22,43 +22,69 @@ class RagAnswer:
 
 def invoke_llm_with_fallback(prompt: str) -> str:
     """
-    Invokes Groq or Gemini with automatic provider failover if an API key is invalid or rate limited.
+    Invokes Groq or Gemini with automatic provider failover and resilient model cascading.
     """
     current_settings = get_settings()
     providers = []
 
     # Priority 1: Groq (if key provided)
     if current_settings.groq_api_key and current_settings.groq_api_key.strip():
-        providers.append(
-            (
-                "Groq",
-                lambda: ChatGroq(
-                    model_name=current_settings.groq_model or "llama-3.3-70b-versatile",
-                    groq_api_key=current_settings.groq_api_key.strip(),
-                    temperature=0.1,
-                ),
+        groq_key = current_settings.groq_api_key.strip()
+        groq_models = [
+            current_settings.groq_model or "llama-3.3-70b-versatile",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+        ]
+        # Deduplicate while preserving priority order
+        seen_groq = set()
+        unique_groq_models = [m for m in groq_models if not (m in seen_groq or seen_groq.add(m))]
+
+        for model_name in unique_groq_models:
+            providers.append(
+                (
+                    f"Groq ({model_name})",
+                    lambda m=model_name, k=groq_key: ChatGroq(
+                        model_name=m,
+                        groq_api_key=k,
+                        temperature=0.1,
+                    ),
+                )
             )
-        )
 
     # Priority 2: Google Gemini (if key provided)
     if current_settings.google_api_key and current_settings.google_api_key.strip():
-        model_name = current_settings.gemini_chat_model or "gemini-1.5-flash"
-        if "latest" in model_name or "flash-latest" in model_name:
-            model_name = "gemini-1.5-flash"
+        gemini_key = current_settings.google_api_key.strip()
+        raw_model = (current_settings.gemini_chat_model or "gemini-2.0-flash").strip()
+        clean_model = raw_model.replace("models/", "").strip()
+        # Protect against non-existent 2.5 flash string
+        if clean_model == "gemini-2.5-flash":
+            clean_model = "gemini-2.0-flash"
 
-        providers.append(
-            (
-                "Google Gemini",
-                lambda: ChatGoogleGenerativeAI(
-                    model=model_name,
-                    google_api_key=current_settings.google_api_key.strip(),
-                    temperature=0.1,
-                ),
+        gemini_models = [
+            clean_model,
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+        ]
+        seen_gemini = set()
+        unique_gemini_models = [m for m in gemini_models if not (m in seen_gemini or seen_gemini.add(m))]
+
+        for model_name in unique_gemini_models:
+            providers.append(
+                (
+                    f"Google Gemini ({model_name})",
+                    lambda m=model_name, k=gemini_key: ChatGoogleGenerativeAI(
+                        model=m,
+                        google_api_key=k,
+                        temperature=0.1,
+                    ),
+                )
             )
-        )
 
     if not providers:
-        raise RuntimeError("No LLM API keys configured. Please set GROQ_API_KEY or GOOGLE_API_KEY in your environment.")
+        raise RuntimeError(
+            "No LLM API keys configured. Please set GROQ_API_KEY or GOOGLE_API_KEY in your Render environment variables."
+        )
 
     last_error = None
     for name, get_client in providers:

@@ -139,12 +139,13 @@ class RepositoryIndexer:
         current_settings = get_settings()
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
         self.embedding_dimension = current_settings.embedding_dimension
+        provider = (current_settings.embedding_provider or "fastembed").lower().strip()
 
-        # Prioritize zero-RAM Gemini remote embeddings if Google API key is present
-        if current_settings.google_api_key:
+        # Remote Gemini embeddings if configured and API key present
+        if provider == "gemini" and current_settings.google_api_key and current_settings.google_api_key.strip():
             self.embeddings = GeminiEmbeddings(
                 model=current_settings.gemini_embedding_model,
-                google_api_key=current_settings.google_api_key,
+                google_api_key=current_settings.google_api_key.strip(),
                 dimensionality=current_settings.embedding_dimension,
             )
             self.is_local = False
